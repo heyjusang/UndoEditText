@@ -12,11 +12,22 @@ import hey.jusang.undoedittext.memento.Memento
 class UndoEditText @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = android.R.attr.editTextStyle
 ) : AppCompatEditText(context, attrs, defStyleAttr) {
+    companion object {
+        const val HISTORY_INFINITE = -1
+    }
+
     private val careTaker: CareTaker = CareTaker()
     private val textChangeListener: TextChangeListener = TextChangeListener()
+    private var undoStatusListener: UndoStatusListener? = null
+    private var undoStatus: Boolean = false
+    private var redoStatus: Boolean = false
 
     init {
         addTextChangedListener(textChangeListener)
+    }
+
+    fun setUndoStatusListener(listener: UndoStatusListener) {
+        undoStatusListener = listener
     }
 
     fun canUndo(): Boolean {
@@ -26,17 +37,19 @@ class UndoEditText @JvmOverloads constructor(
     fun undo() {
         val memento: Memento = careTaker.undo() ?: return
         val start: Int = memento.start
-        val end: Int = start + (if (memento.after != null) memento.after.length else 0)
+        val end: Int = start + (memento.after?.length ?: 0)
 
         replace(start, end, memento.before)
+        notifyUndoStatusChanged()
     }
 
     fun redo() {
         val memento: Memento = careTaker.redo() ?: return
-        var start: Int = memento.start
-        var end: Int = start + (if (memento.before != null) memento.before.length else 0)
+        val start: Int = memento.start
+        val end: Int = start + (memento.before?.length ?: 0)
 
         replace(start, end, memento.after)
+        notifyUndoStatusChanged()
     }
 
     fun canRedo(): Boolean {
@@ -45,6 +58,7 @@ class UndoEditText @JvmOverloads constructor(
 
     fun clearHistory() {
         careTaker.clear()
+        notifyUndoStatusChanged()
     }
 
     fun setMaxHistorySize(size: Int) {
@@ -55,6 +69,22 @@ class UndoEditText @JvmOverloads constructor(
         textChangeListener.enabled = false
         editableText.replace(start, end, s)
         textChangeListener.enabled = true
+    }
+
+    private fun notifyUndoStatusChanged() {
+        val newUndoStatus: Boolean = canUndo()
+        val newRedoStatus: Boolean = canRedo()
+
+        if (undoStatus != newUndoStatus) {
+            undoStatus = newUndoStatus
+            undoStatusListener?.onUndoStatusChanged(undoStatus)
+        }
+
+        if (redoStatus != newRedoStatus) {
+            redoStatus = newRedoStatus
+
+            undoStatusListener?.onRedoStatusChanged(redoStatus)
+        }
     }
 
     private inner class TextChangeListener : TextWatcher {
@@ -77,6 +107,7 @@ class UndoEditText @JvmOverloads constructor(
 
             afterText = s?.subSequence(start, start + count)
             careTaker.add(Memento(start, beforeText, afterText))
+            notifyUndoStatusChanged()
         }
 
         override fun afterTextChanged(s: Editable?) {}
